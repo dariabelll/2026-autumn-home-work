@@ -6,6 +6,7 @@ final class RequestValidators {
 
     static final int ID_SIZE = 10;
     private static final int MAX_PORT = 65535;
+    private static final int REGISTRY_BODY_PARTS_COUNT = 2;
 
     private RequestValidators() {
     }
@@ -15,7 +16,7 @@ final class RequestValidators {
     }
 
     static boolean isInvalidRegistryBody(String... registryBody) {
-        if (registryBody.length != 2) {
+        if (registryBody.length != REGISTRY_BODY_PARTS_COUNT) {
             return true;
         }
         String nickname = registryBody[0];

@@ -6,7 +6,7 @@ import com.sun.net.httpserver.HttpHandler;
 import java.io.IOException;
 import java.util.List;
 import java.util.NoSuchElementException;
-import java.util.concurrent.ThreadLocalRandom;
+import java.util.Random;
 
 import static company.vk.edu.distrib.compute.dariabelll.urlshortener.UrlShortenerHttpUtils.extractRedirectId;
 import static company.vk.edu.distrib.compute.dariabelll.urlshortener.UrlShortenerHttpUtils.readRequestBody;
@@ -14,6 +14,11 @@ import static company.vk.edu.distrib.compute.dariabelll.urlshortener.UrlShortene
 import static company.vk.edu.distrib.compute.dariabelll.urlshortener.UrlShortenerHttpUtils.sendTextResponse;
 
 public class UrlShortenerHttpHandler implements HttpHandler {
+
+    private static final String METHOD_GET = "GET";
+    private static final String METHOD_POST = "POST";
+    private static final String METHOD_PUT = "PUT";
+    private static final String METHOD_DELETE = "DELETE";
 
     private static final int HTTP_OK = 200;
     private static final int HTTP_CREATED = 201;
@@ -40,6 +45,7 @@ public class UrlShortenerHttpHandler implements HttpHandler {
     private final PropertiesDao urlDao;
     private final PropertiesDao userDao;
     private final UrlShortenerAuthentication authentication;
+    private final Random random = new Random();
 
     public UrlShortenerHttpHandler(
             int port,
@@ -55,44 +61,59 @@ public class UrlShortenerHttpHandler implements HttpHandler {
     public void handle(HttpExchange exchange) throws IOException {
         try (exchange) {
             try {
-                String method = exchange.getRequestMethod();
-                String path = exchange.getRequestURI().getPath();
-                if (!isPublicEndpoint(method, path)
-                        && authentication.isUnauthenticated(exchange)
-                ) {
-                    exchange.getResponseHeaders().set(
-                            "WWW-Authenticate",
-                            AUTHENTICATION_CHALLENGE
-                    );
-                    sendEmptyResponse(exchange, HTTP_UNAUTHORIZED);
-                    return;
-                }
-                List<String> allowedMethods = getAllowedMethods(path);
-                if (allowedMethods.isEmpty()) {
-                    sendEmptyResponse(exchange, HTTP_NOT_FOUND);
-                    return;
-                }
-                if (!allowedMethods.contains(method)) {
-                    exchange.getResponseHeaders().set(
-                            "Allow",
-                            String.join(", ", allowedMethods)
-                    );
-                    sendEmptyResponse(exchange, HTTP_METHOD_NOT_ALLOWED);
-                    return;
-                }
-                switch (method) {
-                    case "GET" -> handleGet(exchange, path);
-                    case "POST" -> handlePost(exchange, path);
-                    case "PUT" -> handlePut(exchange, path);
-                    case "DELETE" -> handleDelete(exchange, path);
-                    default -> throw new IllegalStateException("Unexpected HTTP method: " + method);
-                }
+                handleRequest(exchange);
+            } catch (NoSuchElementException e) {
+                sendEmptyResponse(exchange, HTTP_NOT_FOUND);
             } catch (IOException e) {
                 if (exchange.getResponseCode() != -1) {
                     throw e;
                 }
                 sendEmptyResponse(exchange, HTTP_INTERNAL_SERVER_ERROR);
             }
+        }
+    }
+
+    private void handleRequest(HttpExchange exchange) throws IOException {
+        String method = exchange.getRequestMethod();
+        String path = exchange.getRequestURI().getPath();
+        if (!isPublicEndpoint(method, path)
+                && authentication.isUnauthenticated(exchange)
+        ) {
+            exchange.getResponseHeaders().set(
+                    "WWW-Authenticate",
+                    AUTHENTICATION_CHALLENGE
+            );
+            sendEmptyResponse(exchange, HTTP_UNAUTHORIZED);
+            return;
+        }
+
+        List<String> allowedMethods = getAllowedMethods(path);
+        if (allowedMethods.isEmpty()) {
+            sendEmptyResponse(exchange, HTTP_NOT_FOUND);
+            return;
+        }
+        if (!allowedMethods.contains(method)) {
+            exchange.getResponseHeaders().set(
+                    "Allow",
+                    String.join(", ", allowedMethods)
+            );
+            sendEmptyResponse(exchange, HTTP_METHOD_NOT_ALLOWED);
+            return;
+        }
+        dispatchByMethod(exchange, method, path);
+    }
+
+    private void dispatchByMethod(
+            HttpExchange exchange,
+            String method,
+            String path
+    ) throws IOException {
+        switch (method) {
+            case METHOD_GET -> handleGet(exchange, path);
+            case METHOD_POST -> handlePost(exchange, path);
+            case METHOD_PUT -> handlePut(exchange, path);
+            case METHOD_DELETE -> handleDelete(exchange, path);
+            default -> throw new IllegalStateException("Unexpected HTTP method: " + method);
         }
     }
 
@@ -125,32 +146,22 @@ public class UrlShortenerHttpHandler implements HttpHandler {
     }
 
     private void handleGetLink(HttpExchange exchange, String id) throws IOException {
-        if (RequestValidators.isInvalidId(id)) {
-            sendEmptyResponse(exchange, HTTP_UNPROCESSABLE_CONTENT);
+        if (rejectInvalidId(exchange, id)) {
             return;
         }
 
-        try {
-            String longLink = urlDao.get(id);
-            sendTextResponse(exchange, HTTP_OK, longLink);
-        } catch (NoSuchElementException e) {
-            sendEmptyResponse(exchange, HTTP_NOT_FOUND);
-        }
+        String longLink = urlDao.get(id);
+        sendTextResponse(exchange, HTTP_OK, longLink);
     }
 
     private void handleRedirect(HttpExchange exchange, String id) throws IOException {
-        if (RequestValidators.isInvalidId(id)) {
-            sendEmptyResponse(exchange, HTTP_UNPROCESSABLE_CONTENT);
+        if (rejectInvalidId(exchange, id)) {
             return;
         }
 
-        try {
-            String longLink = urlDao.get(id);
-            exchange.getResponseHeaders().set("Location", longLink);
-            sendEmptyResponse(exchange, HTTP_MOVED_PERMANENTLY);
-        } catch (NoSuchElementException e) {
-            sendEmptyResponse(exchange, HTTP_NOT_FOUND);
-        }
+        String longLink = urlDao.get(id);
+        exchange.getResponseHeaders().set("Location", longLink);
+        sendEmptyResponse(exchange, HTTP_MOVED_PERMANENTLY);
     }
 
     private void handlePost(HttpExchange exchange, String path) throws IOException {
@@ -194,14 +205,8 @@ public class UrlShortenerHttpHandler implements HttpHandler {
     }
 
     private void handlePut(HttpExchange exchange, String path) throws IOException {
-        if (!path.startsWith(LINK_BY_ID_PREFIX)) {
-            sendEmptyResponse(exchange, HTTP_NOT_FOUND);
-            return;
-        }
-
         String id = path.substring(LINK_BY_ID_PREFIX.length());
-        if (RequestValidators.isInvalidId(id)) {
-            sendEmptyResponse(exchange, HTTP_UNPROCESSABLE_CONTENT);
+        if (rejectInvalidId(exchange, id)) {
             return;
         }
 
@@ -211,26 +216,15 @@ public class UrlShortenerHttpHandler implements HttpHandler {
             sendEmptyResponse(exchange, HTTP_UNPROCESSABLE_CONTENT);
             return;
         }
-        try {
-            urlDao.get(id);
-        } catch (NoSuchElementException e) {
-            sendEmptyResponse(exchange, HTTP_NOT_FOUND);
-            return;
-        }
+        urlDao.get(id);
 
         urlDao.upsert(id, longLink);
         sendEmptyResponse(exchange, HTTP_OK);
     }
 
     private void handleDelete(HttpExchange exchange, String path) throws IOException {
-        if (!path.startsWith(LINK_BY_ID_PREFIX)) {
-            sendEmptyResponse(exchange, HTTP_NOT_FOUND);
-            return;
-        }
-
         String id = path.substring(LINK_BY_ID_PREFIX.length());
-        if (RequestValidators.isInvalidId(id)) {
-            sendEmptyResponse(exchange, HTTP_UNPROCESSABLE_CONTENT);
+        if (rejectInvalidId(exchange, id)) {
             return;
         }
 
@@ -238,18 +232,26 @@ public class UrlShortenerHttpHandler implements HttpHandler {
         sendEmptyResponse(exchange, HTTP_ACCEPTED);
     }
 
+    private static boolean rejectInvalidId(HttpExchange exchange, String id) throws IOException {
+        if (!RequestValidators.isInvalidId(id)) {
+            return false;
+        }
+        sendEmptyResponse(exchange, HTTP_UNPROCESSABLE_CONTENT);
+        return true;
+    }
+
     private static List<String> getAllowedMethods(String path) {
         if (STATUS_ENDPOINT.equals(path)) {
-            return List.of("GET");
+            return List.of(METHOD_GET);
         }
         if (USERS_ENDPOINT.equals(path) || LINKS_ENDPOINT.equals(path)) {
-            return List.of("POST");
+            return List.of(METHOD_POST);
         }
         if (path.startsWith(LINK_BY_ID_PREFIX)) {
-            return List.of("GET", "PUT", "DELETE");
+            return List.of(METHOD_GET, METHOD_PUT, METHOD_DELETE);
         }
         if (extractRedirectId(path) != null) {
-            return List.of("GET");
+            return List.of(METHOD_GET);
         }
         return List.of();
     }
@@ -258,13 +260,13 @@ public class UrlShortenerHttpHandler implements HttpHandler {
         if (STATUS_ENDPOINT.equals(path) || USERS_ENDPOINT.equals(path)) {
             return true;
         }
-        return "GET".equals(method) && extractRedirectId(path) != null;
+        return METHOD_GET.equals(method) && extractRedirectId(path) != null;
     }
 
     private String generateUniqueId() {
-        ThreadLocalRandom random = ThreadLocalRandom.current();
+        StringBuilder idBuilder = new StringBuilder(RequestValidators.ID_SIZE);
         while (true) {
-            StringBuilder idBuilder = new StringBuilder(RequestValidators.ID_SIZE);
+            idBuilder.setLength(0);
             for (int i = 0; i < RequestValidators.ID_SIZE; ++i) {
                 int charIndex = random.nextInt(ALPHA_NUMERIC_ALPHABET.length());
                 idBuilder.append(ALPHA_NUMERIC_ALPHABET.charAt(charIndex));

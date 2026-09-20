@@ -31,7 +31,7 @@ public class PropertiesDao implements Dao<String> {
     }
 
     @Override
-    public synchronized String get(String key) throws NoSuchElementException, IllegalArgumentException {
+    public String get(String key) throws NoSuchElementException, IllegalArgumentException {
         String value = properties.getProperty(key);
         if (value == null) {
             throw new NoSuchElementException(key);
@@ -40,7 +40,7 @@ public class PropertiesDao implements Dao<String> {
     }
 
     @Override
-    public synchronized void upsert(String key, String value) throws IllegalArgumentException, IOException {
+    public void upsert(String key, String value) throws IllegalArgumentException, IOException {
         String prevValue = properties.getProperty(key);
         properties.setProperty(key, value);
         try {
@@ -56,7 +56,7 @@ public class PropertiesDao implements Dao<String> {
     }
 
     @Override
-    public synchronized void delete(String key) throws IllegalArgumentException, IOException {
+    public void delete(String key) throws IllegalArgumentException, IOException {
         String prevValue = properties.getProperty(key);
         if (prevValue == null) {
             return;
