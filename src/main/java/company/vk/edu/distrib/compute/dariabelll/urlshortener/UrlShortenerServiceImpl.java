@@ -11,13 +11,13 @@ public class UrlShortenerServiceImpl implements UrlShortenerService {
 
     private final HttpServer server;
     private final int port;
-    private final PropertiesDao urlDao;
-    private final PropertiesDao userDao;
+    private final JournaledDao urlDao;
+    private final JournaledDao userDao;
 
     public UrlShortenerServiceImpl(
             int port,
-            PropertiesDao urlDao,
-            PropertiesDao userDao) throws IOException {
+            JournaledDao urlDao,
+            JournaledDao userDao) throws IOException {
         this.port = port;
         this.urlDao = urlDao;
         this.userDao = userDao;
@@ -41,8 +41,10 @@ public class UrlShortenerServiceImpl implements UrlShortenerService {
 
     @Override
     public void stop() {
-        server.stop(1);
-        urlDao.close();
-        userDao.close();
+        try (urlDao; userDao) {
+            server.stop(1);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 }

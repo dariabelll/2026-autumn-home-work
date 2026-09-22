@@ -11,13 +11,31 @@ public class UrlShortenerServiceFactory extends AbstractHttpServiceFactory<UrlSh
             System.getProperty("java.io.tmpdir"),
             "dariabelll-url-shortener"
     );
-    private static final Path URL_FILE_PATH = DATA_DIRECTORY.resolve("links.properties");
-    private static final Path USER_FILE_PATH = DATA_DIRECTORY.resolve("users.properties");
+    private static final Path URL_FILE_PATH = DATA_DIRECTORY.resolve("urls.log");
+    private static final Path USER_FILE_PATH = DATA_DIRECTORY.resolve("users.log");
 
     @Override
     protected UrlShortenerServiceImpl doCreate(int port) throws IOException {
-        PropertiesDao urlDao = new PropertiesDao(URL_FILE_PATH);
-        PropertiesDao userDao = new PropertiesDao(USER_FILE_PATH);
-        return new UrlShortenerServiceImpl(port, urlDao, userDao);
+        JournaledDao urlDao = new JournaledDao(URL_FILE_PATH);
+        try {
+            JournaledDao userDao = new JournaledDao(USER_FILE_PATH);
+            try {
+                return new UrlShortenerServiceImpl(port, urlDao, userDao);
+            } catch (IOException | RuntimeException e) {
+                closeOnFailure(userDao, e);
+                throw e;
+            }
+        } catch (IOException | RuntimeException e) {
+            closeOnFailure(urlDao, e);
+            throw e;
+        }
+    }
+
+    private static void closeOnFailure(JournaledDao dao, Exception failure) {
+        try {
+            dao.close();
+        } catch (IOException e) {
+            failure.addSuppressed(e);
+        }
     }
 }

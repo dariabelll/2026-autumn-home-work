@@ -42,15 +42,15 @@ public class UrlShortenerHttpHandler implements HttpHandler {
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
     private final int port;
-    private final PropertiesDao urlDao;
-    private final PropertiesDao userDao;
+    private final JournaledDao urlDao;
+    private final JournaledDao userDao;
     private final UrlShortenerAuthentication authentication;
     private final Random random = new Random();
 
     public UrlShortenerHttpHandler(
             int port,
-            PropertiesDao urlDao,
-            PropertiesDao userDao) {
+            JournaledDao urlDao,
+            JournaledDao userDao) {
         this.port = port;
         this.urlDao = urlDao;
         this.userDao = userDao;

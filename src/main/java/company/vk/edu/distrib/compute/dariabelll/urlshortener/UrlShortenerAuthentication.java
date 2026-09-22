@@ -10,9 +10,9 @@ final class UrlShortenerAuthentication {
 
     private static final String BASIC_SCHEME = "Basic ";
 
-    private final PropertiesDao userDao;
+    private final JournaledDao userDao;
 
-    UrlShortenerAuthentication(PropertiesDao userDao) {
+    UrlShortenerAuthentication(JournaledDao userDao) {
         this.userDao = userDao;
     }
 
