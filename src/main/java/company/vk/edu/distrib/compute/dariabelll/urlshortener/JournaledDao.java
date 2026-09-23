@@ -10,9 +10,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Base64;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class JournaledDao implements Dao<String> {
 
@@ -26,11 +27,12 @@ public class JournaledDao implements Dao<String> {
     private final Path filePath;
     private final Map<String, String> entries;
     private final RandomAccessFile journal;
+    private final ReentrantLock writeLock = new ReentrantLock();
     private boolean journalFailed;
 
     public JournaledDao(Path path) throws IOException {
         filePath = path.toAbsolutePath();
-        entries = new HashMap<>();
+        entries = new ConcurrentHashMap<>();
 
         Files.createDirectories(filePath.getParent());
         journal = new RandomAccessFile(filePath.toFile(), "rw");
@@ -57,26 +59,41 @@ public class JournaledDao implements Dao<String> {
 
     @Override
     public void upsert(String key, String value) throws IllegalArgumentException, IOException {
-        append(putRecord(key, value));
-        entries.put(key, value);
+        writeLock.lock();
+        try {
+            append(putRecord(key, value));
+            entries.put(key, value);
+        } finally {
+            writeLock.unlock();
+        }
     }
 
     @Override
     public void delete(String key) throws IllegalArgumentException, IOException {
-        append(DELETE_OPERATION + FIELD_SEPARATOR + encode(key) + '\n');
-        entries.remove(key);
+        writeLock.lock();
+        try {
+            append(DELETE_OPERATION + FIELD_SEPARATOR + encode(key) + '\n');
+            entries.remove(key);
+        } finally {
+            writeLock.unlock();
+        }
     }
 
     @Override
     public void close() throws IOException {
-        if (!journal.getChannel().isOpen()) {
-            return;
-        }
-        try (journal) {
-            if (journalFailed) {
-                throw new IOException("Cannot compact a journal after a failed rollback");
+        writeLock.lock();
+        try {
+            if (!journal.getChannel().isOpen()) {
+                return;
             }
-            save();
+            try (journal) {
+                if (journalFailed) {
+                    throw new IOException("Cannot compact a journal after a failed rollback");
+                }
+                save();
+            }
+        } finally {
+            writeLock.unlock();
         }
     }
 
@@ -163,14 +180,19 @@ public class JournaledDao implements Dao<String> {
     }
 
     public boolean isStorageAccessible() {
-        Path directory = filePath.getParent();
-        return !journalFailed
-                && journal.getChannel().isOpen()
-                && Files.isDirectory(directory)
-                && Files.isWritable(directory)
-                && Files.isExecutable(directory)
-                && Files.isRegularFile(filePath)
-                && Files.isReadable(filePath)
-                && Files.isWritable(filePath);
+        writeLock.lock();
+        try {
+            Path directory = filePath.getParent();
+            return !journalFailed
+                    && journal.getChannel().isOpen()
+                    && Files.isDirectory(directory)
+                    && Files.isWritable(directory)
+                    && Files.isExecutable(directory)
+                    && Files.isRegularFile(filePath)
+                    && Files.isReadable(filePath)
+                    && Files.isWritable(filePath);
+        } finally {
+            writeLock.unlock();
+        }
     }
 }

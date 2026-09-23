@@ -6,7 +6,7 @@ import com.sun.net.httpserver.HttpHandler;
 import java.io.IOException;
 import java.util.List;
 import java.util.NoSuchElementException;
-import java.util.Random;
+import java.util.concurrent.ThreadLocalRandom;
 
 import static company.vk.edu.distrib.compute.dariabelll.urlshortener.UrlShortenerHttpUtils.extractRedirectId;
 import static company.vk.edu.distrib.compute.dariabelll.urlshortener.UrlShortenerHttpUtils.readRequestBody;
@@ -45,7 +45,6 @@ public class UrlShortenerHttpHandler implements HttpHandler {
     private final JournaledDao urlDao;
     private final JournaledDao userDao;
     private final UrlShortenerAuthentication authentication;
-    private final Random random = new Random();
 
     public UrlShortenerHttpHandler(
             int port,
@@ -265,6 +264,7 @@ public class UrlShortenerHttpHandler implements HttpHandler {
 
     private String generateUniqueId() {
         StringBuilder idBuilder = new StringBuilder(RequestValidators.ID_SIZE);
+        ThreadLocalRandom random = ThreadLocalRandom.current();
         while (true) {
             idBuilder.setLength(0);
             for (int i = 0; i < RequestValidators.ID_SIZE; ++i) {
