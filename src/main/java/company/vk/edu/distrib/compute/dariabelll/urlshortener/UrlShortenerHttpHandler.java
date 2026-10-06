@@ -2,6 +2,7 @@ package company.vk.edu.distrib.compute.dariabelll.urlshortener;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
+import company.vk.edu.distrib.compute.Dao;
 
 import java.io.IOException;
 import java.util.List;
@@ -41,14 +42,16 @@ public class UrlShortenerHttpHandler implements HttpHandler {
     private static final String ALPHA_NUMERIC_ALPHABET =
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
+    private static final String URL_ACCESSIBLE_CHECK_KEY = "222222222222222";
+
     private final int port;
-    private final JournaledDao urlDao;
+    private final Dao<String> urlDao;
     private final JournaledDao userDao;
     private final UrlShortenerAuthentication authentication;
 
     public UrlShortenerHttpHandler(
             int port,
-            JournaledDao urlDao,
+            Dao<String> urlDao,
             JournaledDao userDao) {
         this.port = port;
         this.urlDao = urlDao;
@@ -138,7 +141,7 @@ public class UrlShortenerHttpHandler implements HttpHandler {
     }
 
     private void handleGetStatus(HttpExchange exchange) throws IOException {
-        int status = urlDao.isStorageAccessible() && userDao.isStorageAccessible()
+        int status = isUrlStorageAccessible() && userDao.isStorageAccessible()
                 ? HTTP_OK
                 : HTTP_SERVICE_UNAVAILABLE;
         sendEmptyResponse(exchange, status);
@@ -231,6 +234,17 @@ public class UrlShortenerHttpHandler implements HttpHandler {
         sendEmptyResponse(exchange, HTTP_ACCEPTED);
     }
 
+    private boolean isUrlStorageAccessible() {
+        try {
+            urlDao.get(URL_ACCESSIBLE_CHECK_KEY);
+            return true;
+        } catch (NoSuchElementException e) {
+            return true;
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
     private static boolean rejectInvalidId(HttpExchange exchange, String id) throws IOException {
         if (!RequestValidators.isInvalidId(id)) {
             return false;
@@ -262,7 +276,7 @@ public class UrlShortenerHttpHandler implements HttpHandler {
         return METHOD_GET.equals(method) && extractRedirectId(path) != null;
     }
 
-    private String generateUniqueId() {
+    private String generateUniqueId() throws IOException {
         StringBuilder idBuilder = new StringBuilder(RequestValidators.ID_SIZE);
         ThreadLocalRandom random = ThreadLocalRandom.current();
         while (true) {
