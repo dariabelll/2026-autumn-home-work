@@ -3,8 +3,11 @@ package company.vk.edu.distrib.compute.dariabelll.urlshortener;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import company.vk.edu.distrib.compute.Dao;
+import company.vk.edu.distrib.compute.moderation.LinkCreatedEvent;
+import org.jspecify.annotations.Nullable;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.concurrent.ThreadLocalRandom;
@@ -48,14 +51,17 @@ public class UrlShortenerHttpHandler implements HttpHandler {
     private final Dao<String> urlDao;
     private final JournaledDao userDao;
     private final UrlShortenerAuthentication authentication;
+    private final @Nullable UrlShortenerModeration moderation;
 
     public UrlShortenerHttpHandler(
             int port,
             Dao<String> urlDao,
-            JournaledDao userDao) {
+            JournaledDao userDao,
+            @Nullable UrlShortenerModeration moderation) {
         this.port = port;
         this.urlDao = urlDao;
         this.userDao = userDao;
+        this.moderation = moderation;
         authentication = new UrlShortenerAuthentication(userDao);
     }
 
@@ -189,6 +195,9 @@ public class UrlShortenerHttpHandler implements HttpHandler {
 
         String id = generateUniqueId();
         urlDao.upsert(id, longLink);
+        if (moderation != null) {
+            moderation.enqueue(new LinkCreatedEvent(id, longLink, Instant.now()));
+        }
         String shortLink = "http://localhost:" + port + "/" + id;
         sendTextResponse(exchange, HTTP_CREATED, shortLink);
     }
